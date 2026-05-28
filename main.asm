@@ -19,8 +19,10 @@ error_msg_len equ $ - error_msg
 
 get db "GET "
 get_len equ $ - get
-post db "POST "
-post_len equ $ - post
+post_add db "POST /add"
+post_add_len equ $ - post_add
+post_quit db "POST /quit "
+post_quit_len equ $ - post_quit
 
 response:
     db "HTTP/1.1 200 OK", 13, 10
@@ -50,11 +52,13 @@ response:
 
 response_len equ $ - response
 
+reuseaddr_opt dd 1
+
 servaddr:
   istruc sockaddr_in
     at sockaddr_in.sin_family, dw AF_INET
     at sockaddr_in.sin_port, dw 0xB80B    ; port 3000 in big endian format
-    at sockaddr_in.sin_addr, dw INADDR_ANY
+    at sockaddr_in.sin_addr, dd INADDR_ANY
     at sockaddr_in.sin_zero, dq 0
   iend
 
@@ -67,6 +71,8 @@ _start:
   test rax, rax
   js error
   mov r12, rax
+
+  SYSCALL5 SYS_SETSOCKOPT, r12, SOL_SOCKET, SO_REUSEADDR, reuseaddr_opt, 4
 
   SYSCALL3 SYS_BIND, r12, servaddr, sockaddr_in_size
   test rax, rax
@@ -94,13 +100,21 @@ _start:
     test rax, rax
     jnz .is_get
 
-    mov rdi, post
+    mov rdi, post_add
     mov rsi, request_buffer
-    mov rdx, post_len
+    mov rdx, post_add_len
     call strncmp
 
     test rax, rax
-    jnz .is_post
+    jnz .is_post_add
+
+    mov rdi, post_quit
+    mov rsi, request_buffer
+    mov rdx, post_quit_len
+    call strncmp
+
+    test rax, rax
+    jnz .is_post_quit
 
     jmp .rax_zero
 
@@ -108,9 +122,14 @@ _start:
       SYSCALL3 SYS_WRITE, 1, get, get_len
       jmp .send_response
 
-    .is_post:
-      SYSCALL3 SYS_WRITE, 1, post, post_len
+    .is_post_add:
+      SYSCALL3 SYS_WRITE, 1, post_add, post_add_len
       jmp .send_response
+
+    .is_post_quit:
+      SYSCALL1 SYS_WRITE, r13
+      SYSCALL1 SYS_CLOSE, r13
+      jmp exit_server_loop
 
     .rax_zero:
       SYSCALL1 SYS_CLOSE, r13
@@ -121,10 +140,12 @@ _start:
       SYSCALL1 SYS_CLOSE, r13
       jmp server_loop
 
+  exit_server_loop:
+    SYSCALL1 SYS_EXIT, EXIT_SUCCESS
+
   SYSCALL1 SYS_EXIT, EXIT_SUCCESS
 
 error_and_close:
-  SYSCALL3 SYS_WRITE, 1, error_msg, error_msg_len
   SYSCALL1 SYS_CLOSE, r12
   jmp error
 
