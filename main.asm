@@ -12,6 +12,8 @@ todo_buffer resb TODO_CAP * TODO_SIZE
 
 section .data
 
+todo_index dq 0
+
 msg db "Server Running", 10     ; add port number as well
 msg_len equ $ - msg
 error_msg db "An unexpected error occured", 10
@@ -24,12 +26,22 @@ post_add_len equ $ - post_add
 post_quit db "POST /quit "
 post_quit_len equ $ - post_quit
 
-response:
+body_separator db 13, 10, 13, 10, 0
+
+li_start db "<li>", 10
+li_start_len equ $ - li_start
+li_end db "</li>", 10
+li_end_len equ $ - li_end
+
+response_header:
     db "HTTP/1.1 200 OK", 13, 10
     db "Content-Type: text/html", 13, 10
     db "Connection: close", 13, 10
     db 13, 10
-    db '<!DOCTYPE html>', 10
+
+response_header_len equ $ - response_header
+
+response_body_before_task_list:
     db '<html lang="en">', 10
     db '<head>', 10
     db '  <meta charset="UTF-8" />', 10
@@ -42,15 +54,27 @@ response:
     db '    <input type="text" name="task" />', 10
     db '    <button type="submit">Add</button>', 10
     db '  </form>', 10
+
+response_body_before_task_list_len equ $ - response_body_before_task_list
+
+response_task_list_start:
     db '  <ul>', 10
+
+response_task_list_start_len equ $ - response_task_list_start
+
+response_task_list_end:
     db '  </ul>', 10
+
+response_task_list_end_len equ $ - response_task_list_end
+
+response_body_after_task_list:
     db '  <form method="POST" action="/quit">', 10
     db '    <button type="submit">Quit Server</button>', 10
     db '  </form>', 10
     db '</body>', 10
     db '</html>', 10
 
-response_len equ $ - response
+response_body_after_task_list_len equ $ - response_body_after_task_list
 
 reuseaddr_opt dd 1
 
@@ -124,6 +148,48 @@ _start:
 
     .is_post_add:
       SYSCALL3 SYS_WRITE, 1, post_add, post_add_len
+
+      cmp qword [rel todo_index], TODO_CAP
+      jge .rax_zero
+
+      mov rdi, request_buffer
+      mov rsi, body_separator
+      call strstr
+
+      cmp rax, -1
+      je .rax_zero
+
+      lea rsi, [request_buffer + rax + 9]   ; 9 because /r/n/r/ntask=
+
+      mov rax, [rel todo_index]
+      shl rax, 8
+      lea rdi, [todo_buffer + rax]
+
+      mov rcx, TODO_SIZE - 1
+
+
+      .copy_loop:
+        cmp rcx, 0
+        je .copy_done
+
+        mov al, [rsi]
+        cmp al, 0
+        je .copy_done
+
+        cmp al, '&'
+        je .copy_done
+
+        mov [rdi], al
+
+        inc rsi
+        inc rdi
+        dec rcx
+        jmp .copy_loop
+
+      .copy_done:
+        mov byte [rdi], 0
+        inc qword [rel todo_index]
+
       jmp .send_response
 
     .is_post_quit:
@@ -136,9 +202,37 @@ _start:
       jmp server_loop
 
     .send_response:
-      SYSCALL3 SYS_WRITE, r13, response, response_len
-      SYSCALL1 SYS_CLOSE, r13
-      jmp server_loop
+      SYSCALL3 SYS_WRITE, r13, response_header, response_header_len
+      SYSCALL3 SYS_WRITE, r13, response_body_before_task_list, response_body_before_task_list_len
+      SYSCALL3 SYS_WRITE, r13, response_task_list_start, response_task_list_start_len
+
+      mov rax, [rel todo_index]
+      .task_loop:
+        cmp rax, 0
+        je .task_loop_exit
+
+        dec rax
+        push rax
+
+        shl rax, 8
+        lea r14, [todo_buffer + rax]
+
+        mov rdi, r14 
+        call strlen
+        mov r15, rax
+
+        SYSCALL3 SYS_WRITE, r13, li_start, li_start_len
+        SYSCALL3 SYS_WRITE, r13, r14, r15
+        SYSCALL3 SYS_WRITE, r13, li_end, li_end_len
+
+        pop rax
+        jmp .task_loop
+
+      .task_loop_exit:
+        SYSCALL3 SYS_WRITE, r13, response_task_list_end, response_task_list_end_len
+        SYSCALL3 SYS_WRITE, r13, response_body_after_task_list, response_body_after_task_list_len
+        SYSCALL1 SYS_CLOSE, r13
+        jmp server_loop
 
   exit_server_loop:
     SYSCALL1 SYS_EXIT, EXIT_SUCCESS
