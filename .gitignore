@@ -2,3 +2,4 @@ server
 *.o
 *.html
 page
+.prettierignore
