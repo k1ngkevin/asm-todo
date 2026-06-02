@@ -30,7 +30,14 @@ body_separator db 13, 10, 13, 10, 0
 
 li_start db "<li>", 10
 li_start_len equ $ - li_start
-li_end db "</li>", 10
+
+li_end:
+ db  '<form method="POST" action="/delete" style="display:inline">', 10
+ db     '<input type="hidden" name="index" value="0">', 10
+ db     '<button type="submit">X</button>', 10
+ db  '</form>', 10
+ db '</li>', 10
+
 li_end_len equ $ - li_end
 
 response_header:
@@ -114,7 +121,8 @@ _start:
     js error_and_close
     mov r13, rax
 
-    SYSCALL3 SYS_READ, r13, request_buffer, request_buffer_len
+    SYSCALL3 SYS_READ, r13, request_buffer, request_buffer_len - 1
+    mov byte [request_buffer + rax], 0
 
     mov rdi, get
     mov rsi, request_buffer
@@ -179,6 +187,12 @@ _start:
         cmp al, '&'
         je .copy_done
 
+        cmp al, '+'
+        jne .store_char
+
+        mov al, ' '
+
+      .store_char:
         mov [rdi], al
 
         inc rsi
