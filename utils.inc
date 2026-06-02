@@ -90,3 +90,30 @@ xor rax, rax
 
 .strlen_done:
   ret
+
+atoi:
+; args
+; rdi = pointer to the string
+; output
+; rax = the converted integer
+
+xor rax, rax
+
+.top:
+    movzx rcx, byte [rdi]
+    inc rdi
+
+    cmp rcx, '0'
+    jb .done
+    cmp rcx, '9'
+    ja .done
+
+    sub rcx, '0'
+    imul rax, 10
+    add rax, rcx
+
+    jmp .top
+
+.done:
+    ret
+

@@ -9,6 +9,7 @@ TODO_SIZE equ 256
 section .bss
 request_buffer resb request_buffer_len
 todo_buffer resb TODO_CAP * TODO_SIZE
+index_buffer resb 20 
 
 section .data
 
@@ -23,6 +24,8 @@ get db "GET "
 get_len equ $ - get
 post_add db "POST /add"
 post_add_len equ $ - post_add
+post_delete db "POST /delete"
+post_delete_len equ $ - post_delete
 post_quit db "POST /quit "
 post_quit_len equ $ - post_quit
 
@@ -31,14 +34,19 @@ body_separator db 13, 10, 13, 10, 0
 li_start db "<li>", 10
 li_start_len equ $ - li_start
 
-li_end:
+li_delete_before_index:
  db  '<form method="POST" action="/delete" style="display:inline">', 10
- db     '<input type="hidden" name="index" value="0">', 10
+ db     '<input type="hidden" name="index" value="'
+
+li_delete_before_index_len equ $ - li_delete_before_index
+
+li_delete_after_index:
+ db     '">', 10
  db     '<button type="submit">X</button>', 10
  db  '</form>', 10
  db '</li>', 10
 
-li_end_len equ $ - li_end
+li_delete_after_index_len equ $ - li_delete_after_index
 
 response_header:
     db "HTTP/1.1 200 OK", 13, 10
@@ -122,6 +130,8 @@ _start:
     mov r13, rax
 
     SYSCALL3 SYS_READ, r13, request_buffer, request_buffer_len - 1
+    test rax, rax
+    js .rax_zero
     mov byte [request_buffer + rax], 0
 
     mov rdi, get
@@ -140,6 +150,14 @@ _start:
     test rax, rax
     jnz .is_post_add
 
+    mov rdi, post_delete
+    mov rsi, request_buffer
+    mov rdx, post_delete_len
+    call strncmp
+
+    test rax, rax
+    jnz .is_post_delete
+
     mov rdi, post_quit
     mov rsi, request_buffer
     mov rdx, post_quit_len
@@ -151,12 +169,9 @@ _start:
     jmp .rax_zero
 
     .is_get:
-      SYSCALL3 SYS_WRITE, 1, get, get_len
       jmp .send_response
 
     .is_post_add:
-      SYSCALL3 SYS_WRITE, 1, post_add, post_add_len
-
       cmp qword [rel todo_index], TODO_CAP
       jge .rax_zero
 
@@ -205,6 +220,64 @@ _start:
         inc qword [rel todo_index]
 
       jmp .send_response
+    
+
+    .is_post_delete:
+      mov rdi, request_buffer
+      mov rsi, body_separator
+      call strstr
+
+      cmp rax, -1
+      je .rax_zero
+
+      lea rdi, [request_buffer + rax + 10]   ; 10 because /r/n/r/nindex=
+      call atoi
+
+      cmp rax, 0
+      jl .rax_zero 
+      cmp rax, TODO_CAP
+      jae .rax_zero
+
+      mov rcx, rax 
+
+      .task_shift_loop:
+        mov rdx, rcx
+        inc rdx
+
+        cmp rdx, [rel todo_index]
+        jae .task_shift_done
+
+        mov rax, rcx
+        shl rax, 8
+        lea rdi, [todo_buffer + rax]  ; tasks[i]
+
+        mov rax, rdx
+        shl rax, 8
+        lea rsi, [todo_buffer + rax]  ; tasks[i+1]
+
+        mov r8, TODO_SIZE
+
+        .copy_task_loop:
+          cmp r8, 0
+          je .copy_task_done
+
+          mov al, [rsi]
+          mov [rdi], al
+
+          inc rsi
+          inc rdi
+          dec r8
+          jmp .copy_task_loop
+
+        .copy_task_done:
+          inc rcx
+          jmp .task_shift_loop
+
+      .task_shift_done:
+        dec qword [rel todo_index]
+
+      jmp .send_response
+
 
     .is_post_quit:
       SYSCALL1 SYS_WRITE, r13
@@ -237,7 +310,32 @@ _start:
 
         SYSCALL3 SYS_WRITE, r13, li_start, li_start_len
         SYSCALL3 SYS_WRITE, r13, r14, r15
-        SYSCALL3 SYS_WRITE, r13, li_end, li_end_len
+        SYSCALL3 SYS_WRITE, r13, li_delete_before_index, li_delete_before_index_len
+
+        xor r8, r8
+        mov rax, [rsp]
+        cmp rax, 10
+        jb .one_digit_index
+
+        mov rbx, 10 
+        xor rdx, rdx
+        div rbx
+
+        add al, '0'
+        mov [rel index_buffer], al
+        inc r8
+        mov al, dl
+
+        .one_digit_index:
+          add al, '0'
+          lea rbx, [rel index_buffer]
+          mov [rbx + r8], al
+          mov rdx, r8
+          inc rdx
+          SYSCALL3 SYS_WRITE, r13, index_buffer, rdx
+
+
+        SYSCALL3 SYS_WRITE, r13, li_delete_after_index, li_delete_after_index_len
 
         pop rax
         jmp .task_loop
