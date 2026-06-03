@@ -15,7 +15,7 @@ db_byte resb 1
 section .data
 
 todo_index dq 0
-filename db "todo.db", 0
+todo_db_filename db "todo.db", 0
 
 msg db "Server Running", 10     ; add port number as well
 msg_len equ $ - msg
@@ -125,7 +125,7 @@ _start:
 
   SYSCALL3 SYS_WRITE, 1, msg, msg_len
 
-  SYSCALL3 SYS_OPEN, filename, O_RDONLY, 0
+  SYSCALL3 SYS_OPEN, todo_db_filename, O_RDONLY, 0
   test rax, rax
   js server_loop
 
@@ -336,7 +336,6 @@ _start:
 
 
     .is_post_quit:
-      SYSCALL1 SYS_WRITE, r13
       SYSCALL1 SYS_CLOSE, r13
       jmp exit_server_loop
 
@@ -403,6 +402,45 @@ _start:
         jmp server_loop
 
   exit_server_loop:
+    SYSCALL3 SYS_OPEN, todo_db_filename, O_WRONLY | O_CREAT | O_TRUNC, 0o644
+    test rax, rax
+    js error_and_close
+
+    mov r14, rax
+
+    xor r15, r15
+    .write_task_loop:
+      cmp r15, [rel todo_index]
+      jge .close_db
+
+      mov rax, r15
+      shl rax, 8
+      lea rbx, [todo_buffer + rax]
+
+      mov rdi, rbx
+      call strlen
+      mov r8, rax
+
+      SYSCALL3 SYS_WRITE, r14, rbx, r8
+      test rax, rax
+      js .write_error
+
+      mov byte [rel db_byte], 10
+      SYSCALL3 SYS_WRITE, r14, db_byte, 1
+      test rax, rax
+      js .write_error
+
+      inc r15
+      jmp .write_task_loop
+
+    .write_error:
+      SYSCALL1 SYS_CLOSE, r14
+      jmp error_and_close
+
+    .close_db:
+      SYSCALL1 SYS_CLOSE, r14
+      SYSCALL1 SYS_CLOSE, r12
+
     SYSCALL1 SYS_EXIT, EXIT_SUCCESS
 
   SYSCALL1 SYS_EXIT, EXIT_SUCCESS
