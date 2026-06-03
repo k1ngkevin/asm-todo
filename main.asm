@@ -17,7 +17,7 @@ section .data
 todo_index dq 0
 todo_db_filename db "todo.db", 0
 
-msg db "Server Running", 10     ; add port number as well
+msg db "Server Running on port 3000", 10
 msg_len equ $ - msg
 error_msg db "An unexpected error occured", 10
 error_msg_len equ $ - error_msg
@@ -92,6 +92,21 @@ response_body_after_task_list:
     db '</html>', 10
 
 response_body_after_task_list_len equ $ - response_body_after_task_list
+
+quit_response_body:
+    db '<html lang="en">', 10
+    db '<head>', 10
+    db '  <meta charset="UTF-8" />', 10
+    db '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />', 10
+    db '  <title>Server Quitting</title>', 10
+    db '</head>', 10
+    db '<body>', 10
+    db '  <h1>Server quitting</h1>', 10
+    db '  <p>Todo server is shutting down. You can close this tab.</p>', 10
+    db '</body>', 10
+    db '</html>', 10
+
+quit_response_body_len equ $ - quit_response_body
 
 reuseaddr_opt dd 1
 
@@ -305,11 +320,11 @@ _start:
 
         mov rax, rcx
         shl rax, 8
-        lea rdi, [todo_buffer + rax]  ; tasks[i]
+        lea rdi, [todo_buffer + rax]
 
         mov rax, rdx
         shl rax, 8
-        lea rsi, [todo_buffer + rax]  ; tasks[i+1]
+        lea rsi, [todo_buffer + rax]
 
         mov r8, TODO_SIZE
 
@@ -336,6 +351,8 @@ _start:
 
 
     .is_post_quit:
+      SYSCALL3 SYS_WRITE, r13, response_header, response_header_len
+      SYSCALL3 SYS_WRITE, r13, quit_response_body, quit_response_body_len
       SYSCALL1 SYS_CLOSE, r13
       jmp exit_server_loop
 
