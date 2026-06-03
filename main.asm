@@ -9,11 +9,13 @@ TODO_SIZE equ 256
 section .bss
 request_buffer resb request_buffer_len
 todo_buffer resb TODO_CAP * TODO_SIZE
-index_buffer resb 20 
+index_buffer resb 20
+db_byte resb 1
 
 section .data
 
 todo_index dq 0
+filename db "todo.db", 0
 
 msg db "Server Running", 10     ; add port number as well
 msg_len equ $ - msg
@@ -122,6 +124,60 @@ _start:
   js error_and_close
 
   SYSCALL3 SYS_WRITE, 1, msg, msg_len
+
+  SYSCALL3 SYS_OPEN, filename, O_RDONLY, 0
+  test rax, rax
+  js server_loop
+
+  mov r14, rax
+
+  mov qword [rel todo_index], 0
+
+  .load_task_loop:
+    mov rax, [rel todo_index]
+    cmp rax, TODO_CAP
+    jge .close_db
+
+    shl rax, 8
+    lea rbx, [todo_buffer + rax]
+    xor r15, r15
+
+  .load_char_loop:
+    SYSCALL3 SYS_READ, r14, db_byte, 1
+    test rax, rax
+    js .close_db
+    jz .load_eof
+
+    mov al, [rel db_byte]
+    cmp al, 13
+    je .load_char_loop
+    cmp al, 10
+    je .load_line_done
+
+    cmp r15, TODO_SIZE - 1
+    jae .load_char_loop
+
+    mov [rbx + r15], al
+    inc r15
+    jmp .load_char_loop
+
+  .load_line_done:
+    cmp r15, 0
+    je .load_task_loop
+
+    mov byte [rbx + r15], 0
+    inc qword [rel todo_index]
+    jmp .load_task_loop
+
+  .load_eof:
+    cmp r15, 0
+    je .close_db
+
+    mov byte [rbx + r15], 0
+    inc qword [rel todo_index]
+
+  .close_db:
+    SYSCALL1 SYS_CLOSE, r14
 
   server_loop:
     SYSCALL3 SYS_ACCEPT, r12, 0, 0
