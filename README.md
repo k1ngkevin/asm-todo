@@ -2,6 +2,8 @@
 
 A todo web server built entirely in NASM x86-64 assembly for Linux.
 
+https://github.com/user-attachments/assets/ac5a2db8-a72c-4e01-a1b2-0e93d3b2aa1c
+
 The server listens on port `3000`, renders a basic HTML todo list, accepts tasks through an HTTP form, supports deleting tasks, and saves tasks to `todo.db` file when the server exits through the page's quit button.
 
 ## Requirements
